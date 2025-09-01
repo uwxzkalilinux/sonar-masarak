@@ -249,7 +249,10 @@ app.get('/api/proxy', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { username, password, isAdmin } = req.body;
   
+  console.log('محاولة تسجيل دخول جديدة:', { username, passwordProvided: !!password, isAdmin });
+  
   if (!username || !password) {
+    console.log('خطأ: بيانات تسجيل الدخول غير مكتملة');
     return res.status(200).json({ success: false, message: 'يجب توفير اسم المستخدم وكلمة المرور' });
   }
   
@@ -258,14 +261,21 @@ app.post('/api/login', async (req, res) => {
     
     // البحث عن المستخدم في جدول users بغض النظر عن نوع المستخدم
     // نستخدم اسم المستخدم للبحث
+    console.log('جاري البحث عن المستخدم في قاعدة البيانات');
     const { data, error: userError } = await supabase
       .from('users')
       .select('*');
     
     if (userError) {
       console.error('خطأ في البحث عن المستخدم:', userError);
-      return res.status(200).json({ success: false, message: 'حدث خطأ أثناء البحث عن المستخدم' });
+      return res.status(200).json({ 
+        success: false, 
+        message: 'حدث خطأ أثناء البحث عن المستخدم',
+        details: userError.message || 'خطأ غير معروف'
+      });
     }
+    
+    console.log(`تم استرجاع ${data ? data.length : 0} مستخدم من قاعدة البيانات`);
     
     // البحث عن المستخدم في البيانات المسترجعة
     account = data.find(user => 
@@ -275,12 +285,17 @@ app.post('/api/login', async (req, res) => {
       user.email === username
     );
     
+    console.log('نتيجة البحث عن المستخدم:', { userFound: !!account });
+    
     if (!account) {
       return res.status(200).json({ success: false, message: 'اسم المستخدم غير موجود. يرجى التواصل مع المدير.' });
     }
     
     // التحقق من كلمة المرور
-    if (account.password !== password && account.password_hash !== password) {
+    const isPasswordValid = account.password === password || account.password_hash === password;
+    console.log('نتيجة التحقق من كلمة المرور:', { isPasswordValid });
+    
+    if (!isPasswordValid) {
       return res.status(200).json({ success: false, message: 'كلمة المرور غير صحيحة' });
     }
     
@@ -291,28 +306,39 @@ app.post('/api/login', async (req, res) => {
     
     console.log('تم تسجيل الدخول بنجاح:', username, isAdmin ? '(مدير)' : '(مستخدم عادي)');
     
-    // تسجيل معلومات الجهاز
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const deviceName = req.headers['user-agent'] || 'غير معروف';
-    
-    // إضافة أو تحديث معلومات الجهاز
-    const { error: deviceError } = await supabase
-      .from('user_devices')
-      .upsert([
-        {
-          user_id: account.id,
-          device_name: deviceName,
-          ip_address: ip,
-          last_login: new Date().toISOString()
-        }
-      ]);
-    
-    if (deviceError) {
-      console.error('خطأ في تسجيل معلومات الجهاز:', deviceError);
+    try {
+      // تسجيل معلومات الجهاز
+      const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+      const deviceName = req.headers['user-agent'] || 'غير معروف';
+      
+      // إضافة أو تحديث معلومات الجهاز
+      const { error: deviceError } = await supabase
+        .from('user_devices')
+        .upsert([
+          {
+            user_id: account.id,
+            device_name: deviceName,
+            ip_address: ip,
+            last_login: new Date().toISOString()
+          }
+        ]);
+      
+      if (deviceError) {
+        console.error('خطأ في تسجيل معلومات الجهاز:', deviceError);
+        // نستمر بالرغم من الخطأ
+      }
+    } catch (deviceLogError) {
+      console.error('استثناء في تسجيل معلومات الجهاز:', deviceLogError);
+      // نستمر بالرغم من الخطأ
     }
     
-    // تسجيل نشاط تسجيل الدخول
-    await addActivity('login', username, account.role === 'admin' ? 'تسجيل دخول مدير' : 'تسجيل دخول مستخدم');
+    try {
+      // تسجيل نشاط تسجيل الدخول
+      await addActivity('login', username, account.role === 'admin' ? 'تسجيل دخول مدير' : 'تسجيل دخول مستخدم');
+    } catch (activityLogError) {
+      console.error('استثناء في تسجيل النشاط:', activityLogError);
+      // نستمر بالرغم من الخطأ
+    }
     
     // إعداد معلومات المستخدم للإرجاع
     const userInfo = {
@@ -332,8 +358,13 @@ app.post('/api/login', async (req, res) => {
       user: userInfo
     });
   } catch (error) {
-    console.error('خطأ في تسجيل الدخول:', error);
-    return res.status(200).json({ success: false, message: 'حدث خطأ أثناء تسجيل الدخول' });
+    console.error('استثناء غير متوقع في تسجيل الدخول:', error);
+    return res.status(200).json({ 
+      success: false, 
+      message: 'حدث خطأ أثناء تسجيل الدخول',
+      details: error.message || 'خطأ غير معروف',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
