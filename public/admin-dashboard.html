@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>لوحة تحكم الإدارة - نظام مسارك سونار</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+  <script>
+    // التحقق من تسجيل دخول المدير
+    function checkAdminLogin() {
+      if (sessionStorage.getItem('adminLoggedIn') !== 'true') {
+        console.log('لم يتم العثور على جلسة نشطة، جاري التوجيه إلى صفحة تسجيل الدخول...');
+        sessionStorage.clear();
+        localStorage.clear();
+        window.location.href = 'login.html';
+        return false;
+      }
+      
+      console.log('تم التحقق من تسجيل الدخول بنجاح');
+      return true;
+    }
+    
+    // جلب الإحصائيات من الخادم
+    async function fetchStats() {
+      try {
+        const response = await fetch('/api/stats');
+        if (!response.ok) {
+          throw new Error('فشل في جلب الإحصائيات');
+        }
+        const data = await response.json();
+        
+        // تحديث الإحصائيات في الصفحة
+        document.querySelector('.stat-card:nth-child(1) .stat-number').textContent = data.totalUsers || '0';
+        document.querySelector('.stat-card:nth-child(2) .stat-number').textContent = data.searchCount || '0';
+        
+        // تحديث وقت آخر تحديث
+        const now = new Date();
+        const lastUpdateElement = document.getElementById('lastUpdate');
+        if (lastUpdateElement) {
+          lastUpdateElement.textContent = now.toLocaleTimeString('ar-SA');
+        }
+        
+        // تحديث مخطط البيانات
+        if (data.dailyStats && Array.isArray(data.dailyStats)) {
+          updateChart(data.dailyStats);
+        } else {
+          updateChart([]);
+        }
+        
+        return data;
+      } catch (error) {
+        console.error('خطأ في جلب الإحصائيات:', error);
+        // تعيين قيم افتراضية في حالة الخطأ
+        document.querySelector('.stat-card:nth-child(1) .stat-number').textContent = '0';
+        document.querySelector('.stat-card:nth-child(2) .stat-number').textContent = '0';
+      }
+    }
+    
+    // جلب آخر النشاطات
+async function fetchActivities() {
+  try {
+    const response = await fetch('/api/activities');
+    if (!response.ok) {
+      throw new Error('فشل في جلب النشاطات');
+    }
+    const data = await response.json();
+    
+    // تحديث قائمة النشاطات
+    const activitiesList = document.getElementById('activities-list');
+    activitiesList.innerHTML = '';
+    
+    // التحقق من وجود البيانات وأنها مصفوفة
+    if (!data.success || !data.activities || !Array.isArray(data.activities) || data.activities.length === 0) {
+      activitiesList.innerHTML = '<tr><td colspan="4" class="text-center">لا توجد نشاطات حتى الآن</td></tr>';
+      return;
+    }
+    
+    // عرض آخر 10 نشاطات
+    const recentActivities = [...data.activities].slice(0, 10);
+    
+    recentActivities.forEach(activity => {
+      const date = new Date(activity.timestamp);
+      
+      // تنسيق التاريخ بتنسيق 12 ساعة والتاريخ الميلادي
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      
+      // تنسيق الوقت بنظام 12 ساعة
+      let hours = date.getHours();
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const seconds = date.getSeconds().toString().padStart(2, '0');
+      const ampm = hours >= 12 ? 'م' : 'ص';
+      
+      hours = hours % 12;
+      hours = hours ? hours : 12; // الساعة 0 تصبح 12
+      const formattedHours = hours.toString().padStart(2, '0');
+      
+      const formattedDate = `${day}/${month}/${year} ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+      
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td>${activity.username || 'غير معروف'}</td>
+        <td>${activity.type === 'search' ? 'بحث' : 
+             activity.type === 'admin_login' ? 'تسجيل دخول مدير' : 
+             activity.type === 'user_login' ? 'تسجيل دخول مستخدم' : 'نشاط آخر'}</td>
+        <td>${activity.details || ''}</td>
+        <td>${formattedDate}</td>
+      `;
+      activitiesList.appendChild(row);
+    });
+  } catch (error) {
+    console.error('خطأ في جلب النشاطات:', error);
+    const activitiesList = document.getElementById('activities-list');
+    activitiesList.innerHTML = '<tr><td colspan="4" class="text-center">حدث خطأ أثناء جلب النشاطات</td></tr>';
+  }
+}
+    
+    // تحديث مخطط البيانات
+    function updateChart(dailyStats) {
+      const chartContainer = document.getElementById('search-chart');
+      if (!chartContainer) {
+        console.error('لم يتم العثور على عنصر المخطط');
+        return;
+      }
+      
+      chartContainer.innerHTML = '';
+      
+      // التحقق من وجود بيانات
+      if (!dailyStats || !Array.isArray(dailyStats) || dailyStats.length === 0) {
+        chartContainer.innerHTML = '<div class="no-data">لا توجد بيانات للعرض</div>';
+        return;
+      }
+      
+      // إنشاء عناصر المخطط
+      const chartHeight = 200;
+      const chartWidth = chartContainer.clientWidth;
+      const barWidth = Math.floor(chartWidth / Math.min(8, dailyStats.length));
+      
+      // الحصول على أقصى قيمة للمقياس
+      const maxCount = Math.max(...dailyStats.map(day => day.count || 0), 5);
+      
+      // إنشاء المخطط
+      dailyStats.forEach((day, index) => {
+        const count = day.count || 0;
+        const barHeight = count > 0 ? Math.max(20, (count / maxCount) * chartHeight) : 0;
+        
+        const barContainer = document.createElement('div');
+        barContainer.className = 'chart-bar-container';
+        barContainer.style.width = barWidth + 'px';
+        
+        const bar = document.createElement('div');
+        bar.className = 'chart-bar';
+        bar.style.height = barHeight + 'px';
+        
+        const label = document.createElement('div');
+        label.className = 'chart-label';
+        // التحقق من وجود التاريخ وتنسيقه
+        if (day.date && typeof day.date === 'string') {
+          const dateParts = day.date.split('-');
+          label.textContent = dateParts.length > 2 ? dateParts[2] : day.date;
+        } else {
+          label.textContent = index + 1;
+        }
+        
+        const value = document.createElement('div');
+        value.className = 'chart-value';
+        value.textContent = count;
+        
+        barContainer.appendChild(bar);
+        barContainer.appendChild(label);
+        barContainer.appendChild(value);
+        chartContainer.appendChild(barContainer);
+      });
+    }
+    
+    // التحقق عند تحميل الصفحة
+    document.addEventListener('DOMContentLoaded', async function() {
+      if (checkAdminLogin()) {
+        // جلب البيانات من الخادم
+        await fetchStats();
+        await fetchActivities();
+        
+        // تحديث البيانات كل دقيقة
+        setInterval(async () => {
+          await fetchStats();
+          await fetchActivities();
+        }, 60000);
+      }
+    });
+  </script>
+  <div class="dashboard">
+    <!-- القائمة الجانبية -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h2>نظام مسارك سونار</h2>
+      </div>
+      <ul class="sidebar-menu">
+        <li><a href="#" class="active"><i class="fas fa-tachometer-alt"></i> لوحة التحكم</a></li>
+        <li><a href="admin-users.html"><i class="fas fa-users"></i> إدارة المستخدمين</a></li>
+        <li><a href="#"><i class="fas fa-chart-line"></i> الإحصائيات</a></li>
+        <li><a href="#"><i class="fas fa-cog"></i> الإعدادات</a></li>
+        <li><a href="#" id="logout"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</a></li>
+      </ul>
+    </div>
+
+    <!-- المحتوى الرئيسي -->
+    <div class="main-content">
+      <div class="header">
+        <h1>لوحة التحكم</h1>
+        <div class="user-info">
+          <span>مرحباً، علي ناصر</span>
+          <img src="https://ui-avatars.com/api/?name=علي+ناصر&background=2563eb&color=fff" alt="صورة المستخدم" class="avatar">
+        </div>
+      </div>
+
+      <!-- البطاقات الإحصائية -->
+      <div class="stats-cards">
+        <div class="card stat-card">
+          <div class="stat-icon"><i class="fas fa-users"></i></div>
+          <div class="stat-details">
+            <h3>المستخدمين</h3>
+            <p class="stat-number">24</p>
+          </div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon"><i class="fas fa-search"></i></div>
+          <div class="stat-details">
+            <h3>عمليات البحث</h3>
+            <p class="stat-number">1,254</p>
+          </div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon"><i class="fas fa-server"></i></div>
+          <div class="stat-details">
+            <h3>حالة الخادم</h3>
+            <p class="stat-status">متصل</p>
+          </div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon"><i class="fas fa-clock"></i></div>
+          <div class="stat-details">
+            <h3>آخر تحديث</h3>
+            <p class="stat-time" id="lastUpdate">جاري التحميل...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- مخطط عمليات البحث -->
+      <div class="card">
+        <div class="card-header">
+          <h2>إحصائيات البحث (آخر 7 أيام)</h2>
+        </div>
+        <div class="card-body">
+          <div id="search-chart" class="chart-container"></div>
+        </div>
+      </div>
+
+      <!-- آخر النشاطات -->
+      <div class="card">
+        <div class="card-header">
+          <h2>آخر النشاطات</h2>
+        </div>
+        <div class="card-body">
+          <table class="activities-table">
+            <thead>
+              <tr>
+                <th>المستخدم</th>
+                <th>النوع</th>
+                <th>التفاصيل</th>
+                <th>التاريخ والوقت</th>
+              </tr>
+            </thead>
+            <tbody id="activities-list">
+              <tr>
+                <td colspan="4" class="text-center">جاري تحميل النشاطات...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+    
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+    }
+    
+    .stats-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    
+    .stat-card {
+      display: flex;
+      align-items: center;
+      padding: 1.5rem;
+    }
+    
+    /* تنسيقات المخطط البياني */
+    .chart-container {
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-end;
+      height: 250px;
+      padding: 20px 10px;
+    }
+    
+    .chart-bar-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+    }
+    
+    .chart-bar {
+      width: 30px;
+      background-color: #2563eb;
+      border-radius: 4px 4px 0 0;
+      margin-bottom: 10px;
+      transition: height 0.3s ease;
+    }
+    
+    .chart-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .chart-value {
+      font-size: 12px;
+      font-weight: bold;
+      color: #333;
+    }
+    
+    /* تنسيقات جدول النشاطات */
+    .activities-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .activities-table th, .activities-table td {
+      padding: 12px 15px;
+      text-align: right;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .activities-table th {
+      background-color: #f8f9fa;
+      font-weight: 600;
+    }
+    
+    .text-center {
+       text-align: center;
+     }
+    
+    .stat-icon {
+      font-size: 2rem;
+      color: var(--primary-color);
+      margin-left: 1rem;
+    }
+    
+    .stat-details h3 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1rem;
+      color: #6b7280;
+    }
+    
+    .stat-number {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 0;
+      color: var(--text-color);
+    }
+    
+    .stat-status {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0;
+      color: var(--success-color);
+    }
+    
+    .stat-time {
+      font-size: 1rem;
+      margin: 0;
+    }
+  </style>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // إضافة وظيفة تسجيل الخروج
+      document.getElementById('logout').addEventListener('click', function(e) {
+        e.preventDefault();
+        console.log('تسجيل الخروج...');
+        // مسح بيانات الجلسة
+        sessionStorage.clear();
+        localStorage.clear();
+        // التوجيه إلى صفحة تسجيل الدخول
+        window.location.href = 'login.html';
+      });
+      
+      // تحديث وقت آخر تحديث
+      const now = new Date();
+      document.getElementById('lastUpdate').textContent = now.toLocaleString('ar-SA');
+      
+      // التحقق من تسجيل الدخول
+      if (sessionStorage.getItem('adminLoggedIn') !== 'true') {
+        console.log('لم يتم العثور على جلسة نشطة، جاري التوجيه إلى صفحة تسجيل الدخول...');
+        sessionStorage.clear();
+        localStorage.clear();
+        window.location.href = 'login.html';
+        return;
+      }
+      
+      // تحديث اسم المستخدم في الترويسة
+      const username = sessionStorage.getItem('username') || 'المستخدم';
+      document.querySelector('.user-info span').textContent = `مرحباً، ${username}`;
+      document.querySelector('.user-info img').setAttribute('src', `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=2563eb&color=fff`);
+      
+      // جلب بيانات المستخدمين
+      fetch('/api/users')
+        .then(response => response.json())
+        .then(data => {
+          // تحديث عدد المستخدمين
+          document.querySelector('.stat-card:nth-child(1) .stat-number').textContent = data.length;
+        })
+        .catch(error => console.error('خطأ في جلب بيانات المستخدمين:', error));
+      
+      // جلب النشاطات الأخيرة
+      fetch('/api/activities')
+        .then(response => response.json())
+        .then(activities => {
+          // تحديث عدد عمليات البحث
+          const searchActivities = activities.filter(activity => activity.type === 'search');
+          document.querySelector('.stat-card:nth-child(2) .stat-number').textContent = searchActivities.length;
+          
+          // تحديث جدول النشاطات
+          const activitiesTable = document.getElementById('activitiesTable');
+          activitiesTable.innerHTML = '';
+          
+          activities.forEach(activity => {
+            const row = document.createElement('tr');
+            
+            const userCell = document.createElement('td');
+            userCell.textContent = activity.username;
+            
+            const actionCell = document.createElement('td');
+            if (activity.type === 'login') {
+              actionCell.textContent = `تسجيل دخول ${activity.isAdmin ? '(مدير)' : '(مستخدم)'}`;
+            } else if (activity.type === 'search') {
+              actionCell.textContent = `بحث عن الرقم الموحد ${activity.searchTerm}`;
+            }
+            
+            const timeCell = document.createElement('td');
+            const activityTime = new Date(activity.timestamp);
+            const timeDiff = Math.floor((now - activityTime) / 1000 / 60); // بالدقائق
+            
+            if (timeDiff < 1) {
+              timeCell.textContent = 'الآن';
+            } else if (timeDiff < 60) {
+              timeCell.textContent = `منذ ${timeDiff} دقيقة`;
+            } else if (timeDiff < 1440) {
+              timeCell.textContent = `منذ ${Math.floor(timeDiff / 60)} ساعة`;
+            } else {
+              timeCell.textContent = activityTime.toLocaleString('ar-SA');
+            }
+            
+            row.appendChild(userCell);
+            row.appendChild(actionCell);
+            row.appendChild(timeCell);
+            
+            activitiesTable.appendChild(row);
+          });
+        })
+        .catch(error => console.error('خطأ في جلب النشاطات:', error));
+      
+      // تسجيل الخروج
+      document.getElementById('logout').addEventListener('click', function(e) {
+        e.preventDefault();
+        localStorage.removeItem('isLoggedIn');
+        localStorage.removeItem('username');
+        localStorage.removeItem('userRole');
+        window.location.href = 'login.html';
+      });
+    });
+  </script>
+</body>
+</html>

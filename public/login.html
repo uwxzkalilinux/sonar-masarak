@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>تسجيل الدخول - نظام مسارك سونار</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <h1>نظام مسارك سونار</h1>
+        <p>يرجى تسجيل الدخول للمتابعة</p>
+      </div>
+      
+      <div class="login-tabs">
+        <button class="tab-btn active" data-tab="user">مستخدم</button>
+        <button class="tab-btn" data-tab="admin">مدير النظام</button>
+      </div>
+      
+      <div class="tab-content">
+        <!-- نموذج تسجيل دخول المستخدم العادي -->
+        <div class="tab-pane active" id="user-login">
+          <form id="userLoginForm" class="login-form">
+            <div class="form-group">
+              <label for="username" class="form-label">اسم المستخدم</label>
+              <input type="text" id="username" class="form-control" placeholder="أدخل اسم المستخدم" required>
+            </div>
+            <div class="form-group">
+              <label for="password" class="form-label">كلمة المرور</label>
+              <div class="password-input-group">
+                <input type="password" id="password" class="form-control" placeholder="أدخل كلمة المرور" required>
+                <button type="button" class="toggle-password">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <div id="loginError" class="error-message" style="display: none; margin-bottom: 10px; text-align: center;"></div>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">تسجيل الدخول</button>
+            </div>
+          </form>
+        </div>
+        
+        <!-- نموذج تسجيل دخول المدير -->
+        <div class="tab-pane" id="admin-login">
+          <form id="adminLoginForm" class="login-form">
+            <div class="form-group">
+              <label for="adminUsername" class="form-label">اسم المستخدم</label>
+              <input type="text" id="adminUsername" class="form-control" placeholder="أدخل اسم المستخدم" required>
+            </div>
+            <div class="form-group">
+              <label for="adminPassword" class="form-label">كلمة المرور</label>
+              <div class="password-input-group">
+                <input type="password" id="adminPassword" class="form-control" placeholder="أدخل كلمة المرور" required>
+                <button type="button" class="toggle-password">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <button type="submit" class="btn btn-primary" style="width: 100%;">تسجيل دخول المدير</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      
+      <div class="alert alert-danger" id="adminErrorMessage" style="display: none;"></div>
+    </div>
+  </div>
+
+  <style>
+    .login-tabs {
+      display: flex;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .tab-btn {
+      flex: 1;
+      padding: 0.75rem;
+      background: none;
+      border: none;
+      font-weight: 600;
+      color: #6b7280;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .tab-btn.active {
+      color: var(--primary-color);
+      border-bottom: 2px solid var(--primary-color);
+    }
+    
+    .tab-content {
+      margin-bottom: 1.5rem;
+    }
+    
+    .tab-pane {
+      display: none;
+    }
+    
+    .tab-pane.active {
+      display: block;
+    }
+    
+    .password-input-group {
+      position: relative;
+    }
+    
+    .toggle-password {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #6b7280;
+      cursor: pointer;
+    }
+  </style>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // التبديل بين علامات التبويب
+      const tabBtns = document.querySelectorAll('.tab-btn');
+      const tabPanes = document.querySelectorAll('.tab-pane');
+      
+      tabBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+          const tabId = this.getAttribute('data-tab');
+          
+          // إزالة الفئة النشطة من جميع الأزرار
+          tabBtns.forEach(btn => btn.classList.remove('active'));
+          // إضافة الفئة النشطة للزر المحدد
+          this.classList.add('active');
+          
+          // إخفاء جميع المحتويات
+          tabPanes.forEach(pane => pane.classList.remove('active'));
+          
+          // إظهار المحتوى المناسب
+          if (tabId === 'user') {
+            document.getElementById('user-login').classList.add('active');
+          } else {
+            document.getElementById('admin-login').classList.add('active');
+          }
+        });
+      });
+      
+      // إظهار/إخفاء كلمة المرور
+      const toggleBtns = document.querySelectorAll('.toggle-password');
+      
+      toggleBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+          const input = this.parentElement.querySelector('input');
+          const icon = this.querySelector('i');
+          
+          if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('fa-eye');
+            icon.classList.add('fa-eye-slash');
+          } else {
+            input.type = 'password';
+            icon.classList.remove('fa-eye-slash');
+            icon.classList.add('fa-eye');
+          }
+        });
+      });
+      
+      // معالجة نموذج تسجيل دخول المستخدم
+      const userForm = document.getElementById('userLoginForm');
+      const loginError = document.getElementById('loginError');
+      
+      userForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        
+        // إظهار رسالة انتظار
+        if (loginError) {
+          loginError.textContent = 'جاري التحقق من بيانات الدخول...';
+          loginError.style.display = 'block';
+          loginError.style.color = '#2563eb';
+        }
+        
+        try {
+          // تسجيل نشاط تسجيل الدخول والتحقق من وجود المستخدم
+          const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ username, password, isAdmin: false }),
+            credentials: 'same-origin'
+          });
+          
+          if (!response.ok) {
+            throw new Error('فشل في تسجيل الدخول: ' + response.status);
+          }
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            // تم تسجيل الدخول بنجاح
+            localStorage.setItem('isLoggedIn', 'true');
+            localStorage.setItem('username', username);
+            localStorage.setItem('userId', data.userId);
+            localStorage.setItem('userRole', data.user ? data.user.role : 'user');
+            
+            // إظهار رسالة نجاح
+            if (loginError) {
+              loginError.textContent = 'تم تسجيل الدخول بنجاح، جاري التوجيه...';
+              loginError.style.display = 'block';
+              loginError.style.color = 'green';
+            }
+            
+            // التوجيه إلى الصفحة الرئيسية
+            setTimeout(() => {
+              window.location.href = 'index.html';
+            }, 1000);
+          } else {
+            // فشل تسجيل الدخول
+            if (loginError) {
+              loginError.textContent = data.message || 'فشل تسجيل الدخول. تأكد من صحة بيانات الدخول.';
+              loginError.style.display = 'block';
+              loginError.style.color = 'red';
+            }
+          }
+        } catch (error) {
+          console.error('خطأ في تسجيل الدخول:', error);
+          if (loginError) {
+            loginError.textContent = 'حدث خطأ أثناء الاتصال بالخادم. يرجى المحاولة مرة أخرى.';
+            loginError.style.display = 'block';
+            loginError.style.color = 'red';
+          }
+        }
+      });
+      
+      // معالجة نموذج تسجيل دخول المدير
+      const adminForm = document.getElementById('adminLoginForm');
+      const adminUsernameInput = document.getElementById('adminUsername');
+      const adminPasswordInput = document.getElementById('adminPassword');
+      const adminErrorMessage = document.getElementById('adminErrorMessage');
+      
+      // تغيير placeholder لحقل اسم المستخدم
+      if (adminUsernameInput) {
+        adminUsernameInput.placeholder = "أدخل البريد الإلكتروني";
+      }
+      
+      // التحقق من وجود جلسة نشطة
+      if (sessionStorage.getItem('adminLoggedIn') === 'true') {
+        console.log('تم العثور على جلسة نشطة، جاري التوجيه...');
+        window.location.href = 'admin-dashboard.html';
+      }
+      
+      adminForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const username = adminUsernameInput.value;
+        const password = adminPasswordInput.value;
+        
+        try {
+          adminErrorMessage.style.display = 'none';
+          
+          const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, password, isAdmin: true }),
+            credentials: 'same-origin'
+          });
+          
+          if (!response.ok) {
+            throw new Error('فشل الاتصال بالخادم: ' + response.status);
+          }
+          
+          const data = await response.json();
+          
+          if (data.success && data.isAdmin) {
+            // مسح أي بيانات سابقة
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            // تخزين معلومات المستخدم في localStorage و sessionStorage
+            localStorage.setItem('username', data.username || username);
+            localStorage.setItem('userId', data.userId);
+            localStorage.setItem('isAdmin', 'true');
+            localStorage.setItem('isLoggedIn', 'true');
+            localStorage.setItem('loginTime', new Date().toISOString());
+            
+            // استخدام sessionStorage للجلسة الحالية
+            sessionStorage.setItem('adminLoggedIn', 'true');
+            sessionStorage.setItem('username', data.username || username);
+            
+            console.log('تم تسجيل الدخول بنجاح، جاري التوجيه إلى لوحة التحكم...');
+            
+            // تأخير قصير للتأكد من حفظ البيانات
+            const loginTabs = document.getElementById('loginTabs');
+            const loginContainer = document.querySelector('.login-container');
+            
+            if (adminForm) adminForm.style.display = 'none';
+            if (loginTabs) loginTabs.style.display = 'none';
+            if (loginContainer) loginContainer.innerHTML += '<div class="success-message">تم تسجيل الدخول بنجاح، جاري التوجيه...</div>';
+            
+            setTimeout(function() {
+              window.location.href = 'admin-dashboard.html';
+            }, 500);
+          } else {
+            // عرض رسالة خطأ
+            adminErrorMessage.textContent = data.message || 'اسم المستخدم أو كلمة المرور غير صحيحة';
+            adminErrorMessage.style.display = 'block';
+          }
+        } catch (error) {
+          console.error('خطأ في تسجيل دخول المدير:', error);
+          adminErrorMessage.textContent = 'خطأ في تسجيل الدخول: ' + error.message;
+          adminErrorMessage.style.display = 'block';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

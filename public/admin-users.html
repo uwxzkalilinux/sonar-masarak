@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>إدارة المستخدمين - نظام مسارك سونار</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+  <script>
+    // التحقق من تسجيل دخول المدير
+    function checkAdminLogin() {
+      if (sessionStorage.getItem('adminLoggedIn') !== 'true') {
+        console.log('لم يتم العثور على جلسة نشطة، جاري التوجيه إلى صفحة تسجيل الدخول...');
+        sessionStorage.clear();
+        localStorage.clear();
+        window.location.href = 'login.html';
+        return false;
+      }
+      
+      console.log('تم التحقق من تسجيل الدخول بنجاح');
+      return true;
+    }
+    
+    // إعداد أزرار التعديل والحذف
+    function setupActionButtons() {
+      // إضافة مستمعي الأحداث لأزرار التعديل
+      document.querySelectorAll('.edit-btn').forEach(button => {
+        button.addEventListener('click', function() {
+          const userId = this.getAttribute('data-id');
+          editUser(userId);
+        });
+      });
+      
+      // إضافة مستمعي الأحداث لأزرار الحذف
+      document.querySelectorAll('.delete-btn').forEach(button => {
+        button.addEventListener('click', function() {
+          const userId = this.getAttribute('data-id');
+          deleteUser(userId);
+        });
+      });
+    }
+    
+    // جلب المستخدمين من الخادم
+    async function fetchUsers() {
+      try {
+        // إظهار رسالة التحميل
+        const usersTable = document.getElementById('usersTable');
+        usersTable.innerHTML = '<tr><td colspan="5" class="text-center">جاري تحميل البيانات...</td></tr>';
+        
+        const response = await fetch('/api/users');
+        if (!response.ok) {
+          throw new Error('فشل في جلب المستخدمين');
+        }
+        const data = await response.json();
+        
+        // تحديث قائمة المستخدمين
+        usersTable.innerHTML = '';
+        
+        const users = data.users || [];
+        
+        if (users.length === 0) {
+          usersTable.innerHTML = '<tr><td colspan="5" class="text-center">لا يوجد مستخدمين</td></tr>';
+          return;
+        }
+        
+        users.forEach(user => {
+          // التحقق من وجود تاريخ آخر تسجيل دخول
+          let formattedDate = 'لم يسجل الدخول بعد';
+          if (user.lastLogin) {
+            try {
+              const lastLogin = new Date(user.lastLogin);
+              formattedDate = lastLogin.toLocaleDateString('ar-SA') + ' ' + lastLogin.toLocaleTimeString('ar-SA');
+            } catch (e) {
+              console.error('خطأ في تنسيق التاريخ:', e);
+            }
+          }
+          
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${user.username || ''}</td>
+            <td>${user.fullName || ''}</td>
+            <td>${user.role === 'admin' ? 'مدير' : (user.role === 'viewer' ? 'مشاهد فقط' : 'مستخدم عادي')}</td>
+            <td>${formattedDate}</td>
+            <td>
+              <button class="btn btn-sm btn-primary view-activity" data-username="${user.username}">عرض النشاطات</button>
+              <button class="btn btn-sm btn-warning edit-btn" data-id="${user.id}">تعديل</button>
+              <button class="btn btn-sm btn-danger delete-btn" data-id="${user.id}">حذف</button>
+            </td>
+          `;
+          usersTable.appendChild(row);
+        });
+        
+        // إضافة مستمعي الأحداث لأزرار عرض النشاطات
+        document.querySelectorAll('.view-activity').forEach(button => {
+          button.addEventListener('click', function() {
+            const username = this.getAttribute('data-username');
+            showUserActivities(username);
+          });
+        });
+        
+        // إضافة مستمعي الأحداث لأزرار التعديل والحذف
+        setupActionButtons();
+      } catch (error) {
+        console.error('خطأ في جلب المستخدمين:', error);
+        const usersTable = document.getElementById('usersTable');
+        usersTable.innerHTML = '<tr><td colspan="5" class="text-center text-danger">حدث خطأ أثناء الاتصال بالخادم</td></tr>';
+      }
+    }
+    
+    // تعديل بيانات المستخدم
+    async function editUser(userId) {
+      try {
+        // جلب بيانات المستخدم
+        const response = await fetch(`/api/users/${userId}`);
+        if (!response.ok) {
+          throw new Error('فشل في جلب بيانات المستخدم');
+        }
+        const user = await response.json();
+        
+        if (!user || !user.success) {
+          throw new Error('بيانات المستخدم غير صالحة');
+        }
+        
+        // ملء نموذج التعديل بالبيانات الحالية
+        document.getElementById('editUserId').value = user.id;
+        document.getElementById('editUsername').value = user.username || '';
+        document.getElementById('editFullName').value = user.fullName || '';
+        document.getElementById('editRole').value = user.role || 'user';
+        
+        // عرض النافذة المنبثقة للتعديل
+        const modal = document.getElementById('editModal');
+        modal.style.display = 'block';
+        
+        // إغلاق النافذة المنبثقة عند النقر على زر الإغلاق
+        document.querySelector('#editModal .close').addEventListener('click', function() {
+          modal.style.display = 'none';
+        });
+        
+        // إغلاق النافذة المنبثقة عند النقر خارجها
+        window.addEventListener('click', function(event) {
+          if (event.target === modal) {
+            modal.style.display = 'none';
+          }
+        });
+      } catch (error) {
+        console.error('خطأ في تعديل المستخدم:', error);
+        alert('حدث خطأ أثناء محاولة تعديل المستخدم');
+      }
+    }
+    
+    // حذف المستخدم
+    async function deleteUser(userId) {
+      if (confirm('هل أنت متأكد من رغبتك في حذف هذا المستخدم؟')) {
+        try {
+          const response = await fetch(`/api/users/${userId}`, {
+            method: 'DELETE'
+          });
+          
+          if (!response.ok) {
+            throw new Error('فشل في حذف المستخدم');
+          }
+          
+          // تحديث قائمة المستخدمين بعد الحذف
+          fetchUsers();
+          
+          alert('تم حذف المستخدم بنجاح');
+        } catch (error) {
+          console.error('خطأ في حذف المستخدم:', error);
+          alert('حدث خطأ أثناء محاولة حذف المستخدم');
+        }
+      }
+    }
+    
+    // جلب نشاطات المستخدم
+async function showUserActivities(username) {
+  try {
+    const response = await fetch('/api/activities');
+    if (!response.ok) {
+      throw new Error('فشل في جلب النشاطات');
+    }
+    const data = await response.json();
+    
+    // التحقق من وجود البيانات
+    if (!data.success) {
+      throw new Error('بيانات النشاطات غير صالحة');
+    }
+    
+    // التأكد من أن النشاطات مصفوفة
+    let activities = data.activities || [];
+    if (!Array.isArray(activities)) {
+      console.error('النشاطات ليست مصفوفة:', activities);
+      activities = [];
+    }
+    
+    // تصفية النشاطات حسب اسم المستخدم
+    let userActivities = [];
+    
+    // استخدام حلقة for بدلاً من filter لتجنب الأخطاء
+    for (let i = 0; i < activities.length; i++) {
+      const activity = activities[i];
+      if (activity && activity.username && activity.username.toString() === username.toString()) {
+        userActivities.push(activity);
+      }
+    }
+    
+    // عرض النشاطات في النافذة المنبثقة
+    const modal = document.getElementById('activityModal');
+    const modalTitle = document.getElementById('activityModalTitle');
+    const activitiesList = document.getElementById('userActivitiesList');
+    
+    modalTitle.textContent = `نشاطات المستخدم: ${username}`;
+    activitiesList.innerHTML = '';
+    
+    if (userActivities.length === 0) {
+      activitiesList.innerHTML = '<tr><td colspan="3" class="text-center">لا توجد نشاطات لهذا المستخدم</td></tr>';
+    } else {
+      // ترتيب النشاطات من الأحدث إلى الأقدم
+      userActivities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .forEach(activity => {
+          // تنسيق التاريخ بطريقة أفضل
+          let formattedDate = '';
+          try {
+            const date = new Date(activity.timestamp);
+            
+            // تنسيق التاريخ الميلادي
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const year = date.getFullYear();
+            
+            // تنسيق الوقت بنظام 12 ساعة
+            let hours = date.getHours();
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            const seconds = date.getSeconds().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'م' : 'ص';
+            
+            hours = hours % 12;
+            hours = hours ? hours : 12; // الساعة 0 تصبح 12
+            const formattedHours = hours.toString().padStart(2, '0');
+            
+            formattedDate = `${day}/${month}/${year} ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+          } catch (e) {
+            formattedDate = activity.timestamp || '';
+          }
+          
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${activity.type === 'search' ? 'بحث' : 
+                 activity.type === 'admin_login' ? 'تسجيل دخول مدير' : 
+                 activity.type === 'user_login' ? 'تسجيل دخول مستخدم' : 'نشاط آخر'}</td>
+            <td>${activity.details || ''}</td>
+            <td>${formattedDate}</td>
+          `;
+          activitiesList.appendChild(row);
+        });
+    }
+    
+    // عرض النافذة المنبثقة
+    modal.style.display = 'block';
+    
+    // إغلاق النافذة المنبثقة عند النقر على زر الإغلاق
+    document.querySelector('.close').addEventListener('click', function() {
+      modal.style.display = 'none';
+    });
+    
+    // إغلاق النافذة المنبثقة عند النقر خارجها
+    window.addEventListener('click', function(event) {
+      if (event.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+  } catch (error) {
+    console.error('خطأ في جلب نشاطات المستخدم:', error);
+    alert('حدث خطأ أثناء محاولة جلب نشاطات المستخدم');
+  }
+}
+    
+    // التحقق عند تحميل الصفحة
+    document.addEventListener('DOMContentLoaded', function() {
+      if (checkAdminLogin()) {
+        // تحديث اسم المستخدم في الترويسة
+        const username = sessionStorage.getItem('username') || 'المستخدم';
+        document.querySelector('.user-info span').textContent = `مرحباً، ${username}`;
+        document.querySelector('.user-info img').setAttribute('src', `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=2563eb&color=fff`);
+        
+        // جلب المستخدمين
+        fetchUsers();
+      }
+      
+      // إضافة وظيفة تسجيل الخروج
+      document.getElementById('logout').addEventListener('click', function(e) {
+        e.preventDefault();
+        console.log('تسجيل الخروج...');
+        // مسح بيانات الجلسة
+        sessionStorage.clear();
+        localStorage.clear();
+        // التوجيه إلى صفحة تسجيل الدخول
+        window.location.href = 'login.html';
+      });
+    });
+  </script>
+  <div class="dashboard">
+    <!-- القائمة الجانبية -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h2>نظام مسارك سونار</h2>
+      </div>
+      <ul class="sidebar-menu">
+        <li><a href="admin-dashboard.html"><i class="fas fa-tachometer-alt"></i> لوحة التحكم</a></li>
+        <li><a href="#" class="active"><i class="fas fa-users"></i> إدارة المستخدمين</a></li>
+        <li><a href="#"><i class="fas fa-chart-line"></i> الإحصائيات</a></li>
+        <li><a href="#"><i class="fas fa-cog"></i> الإعدادات</a></li>
+        <li><a href="#" id="logout"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</a></li>
+      </ul>
+    </div>
+
+    <!-- المحتوى الرئيسي -->
+    <div class="main-content">
+      <div class="header">
+        <h1>إدارة المستخدمين</h1>
+        <div class="user-info">
+          <span>مرحباً، علي ناصر</span>
+          <img src="https://ui-avatars.com/api/?name=علي+ناصر&background=2563eb&color=fff" alt="صورة المستخدم" class="avatar">
+        </div>
+      </div>
+
+      <!-- إضافة مستخدم جديد -->
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h2>إضافة مستخدم جديد</h2>
+        </div>
+        <div class="card-body">
+          <form id="addUserForm">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="username" class="form-label">اسم المستخدم</label>
+                <input type="text" id="username" class="form-control" placeholder="أدخل اسم المستخدم" required>
+              </div>
+              <div class="form-group">
+                <label for="fullname" class="form-label">الاسم الكامل</label>
+                <input type="text" id="fullname" class="form-control" placeholder="أدخل الاسم الكامل" required>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="password" class="form-label">كلمة المرور</label>
+                <input type="password" id="password" class="form-control" placeholder="أدخل كلمة المرور" required>
+              </div>
+              <div class="form-group">
+                <label for="role" class="form-label">الصلاحية</label>
+                <select id="role" class="form-control" required>
+                  <option value="">اختر الصلاحية</option>
+                  <option value="admin">مدير</option>
+                  <option value="user">مستخدم عادي</option>
+                  <option value="viewer">مشاهد فقط</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">الصلاحيات الإضافية</label>
+              <div class="permissions-checkboxes">
+                <div class="permission-item">
+                  <input type="checkbox" id="perm_search" class="permission-checkbox">
+                  <label for="perm_search">البحث</label>
+                </div>
+                <div class="permission-item">
+                  <input type="checkbox" id="perm_export" class="permission-checkbox">
+                  <label for="perm_export">تصدير البيانات</label>
+                </div>
+                <div class="permission-item">
+                  <input type="checkbox" id="perm_reports" class="permission-checkbox">
+                  <label for="perm_reports">التقارير</label>
+                </div>
+                <div class="permission-item">
+                  <input type="checkbox" id="perm_settings" class="permission-checkbox">
+                  <label for="perm_settings">الإعدادات</label>
+                </div>
+              </div>
+            </div>
+            <div id="addUserMessage" class="message-box" style="display: none; margin: 10px 0; padding: 10px; border-radius: 4px;"></div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-success">إضافة المستخدم</button>
+              <button type="reset" class="btn btn-secondary">إعادة تعيين</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- قائمة المستخدمين -->
+      <div class="card">
+        <div class="card-header">
+          <h2>المستخدمين الحاليين</h2>
+          <div class="search-box">
+            <input type="text" id="searchUsers" class="form-control" placeholder="بحث عن مستخدم...">
+            <i class="fas fa-search"></i>
+          </div>
+        </div>
+        <div class="card-body">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>الاسم الكامل</th>
+                <th>اسم المستخدم</th>
+                <th>الصلاحية</th>
+                <th>تاريخ الإنشاء</th>
+                <th>الإجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="usersTable">
+              <tr>
+                <td>علي ناصر</td>
+                <td>ali naser</td>
+                <td><span class="badge badge-admin">مدير</span></td>
+                <td>2023-06-15</td>
+                <td>
+                  <div class="actions">
+                    <button class="action-btn edit-btn" data-id="1"><i class="fas fa-edit"></i></button>
+                    <button class="action-btn delete-btn" data-id="1"><i class="fas fa-trash"></i></button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>محمد أحمد</td>
+                <td>mohammed</td>
+                <td><span class="badge badge-user">مستخدم عادي</span></td>
+                <td>2023-07-20</td>
+                <td>
+                  <div class="actions">
+                    <button class="action-btn edit-btn" data-id="2"><i class="fas fa-edit"></i></button>
+                    <button class="action-btn delete-btn" data-id="2"><i class="fas fa-trash"></i></button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>سارة علي</td>
+                <td>sara</td>
+                <td><span class="badge badge-viewer">مشاهد فقط</span></td>
+                <td>2023-08-05</td>
+                <td>
+                  <div class="actions">
+                    <button class="action-btn edit-btn" data-id="3"><i class="fas fa-edit"></i></button>
+                    <button class="action-btn delete-btn" data-id="3"><i class="fas fa-trash"></i></button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- نافذة تعديل المستخدم -->
+  <div class="modal" id="editUserModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>تعديل بيانات المستخدم</h2>
+        <button class="close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="editUserForm">
+          <input type="hidden" id="edit_user_id">
+          <div class="form-group">
+            <label for="edit_username" class="form-label">اسم المستخدم</label>
+            <input type="text" id="edit_username" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label for="edit_fullname" class="form-label">الاسم الكامل</label>
+            <input type="text" id="edit_fullname" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label for="edit_password" class="form-label">كلمة المرور الجديدة (اتركها فارغة للإبقاء على كلمة المرور الحالية)</label>
+            <input type="password" id="edit_password" class="form-control">
+          </div>
+          <div class="form-group">
+            <label for="edit_role" class="form-label">الصلاحية</label>
+            <select id="edit_role" class="form-control" required>
+              <option value="admin">مدير</option>
+              <option value="user">مستخدم عادي</option>
+              <option value="viewer">مشاهد فقط</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">الصلاحيات الإضافية</label>
+            <div class="permissions-checkboxes">
+              <div class="permission-item">
+                <input type="checkbox" id="edit_perm_search" class="permission-checkbox">
+                <label for="edit_perm_search">البحث</label>
+              </div>
+              <div class="permission-item">
+                <input type="checkbox" id="edit_perm_export" class="permission-checkbox">
+                <label for="edit_perm_export">تصدير البيانات</label>
+              </div>
+              <div class="permission-item">
+                <input type="checkbox" id="edit_perm_reports" class="permission-checkbox">
+                <label for="edit_perm_reports">التقارير</label>
+              </div>
+              <div class="permission-item">
+                <input type="checkbox" id="edit_perm_settings" class="permission-checkbox">
+                <label for="edit_perm_settings">الإعدادات</label>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary close-modal">إلغاء</button>
+        <button class="btn btn-primary" id="saveUserChanges">حفظ التغييرات</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- نافذة منبثقة لعرض نشاطات المستخدم -->
+  <div id="activityModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="activityModalTitle">نشاطات المستخدم</h2>
+        <span class="close">&times;</span>
+      </div>
+      <div class="modal-body">
+        <table class="table table-striped">
+          <thead>
+            <tr>
+              <th>نوع النشاط</th>
+              <th>التفاصيل</th>
+              <th>التاريخ والوقت</th>
+            </tr>
+          </thead>
+          <tbody id="userActivitiesList">
+            <!-- سيتم إضافة نشاطات المستخدم هنا -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <!-- نافذة تعديل المستخدم -->
+  <div id="editUserModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>تعديل بيانات المستخدم</h2>
+        <span class="close" onclick="document.getElementById('editUserModal').style.display='none'">&times;</span>
+      </div>
+      <div class="modal-body">
+        <form id="editUserForm">
+          <div class="form-group">
+            <label for="editUsername">اسم المستخدم</label>
+            <input type="text" class="form-control" id="editUsername" required>
+          </div>
+          <div class="form-group">
+            <label for="editFullname">الاسم الكامل</label>
+            <input type="text" class="form-control" id="editFullname" required>
+          </div>
+          <div class="form-group">
+            <label for="editPassword">كلمة المرور (اتركها فارغة إذا لم ترغب في تغييرها)</label>
+            <input type="password" class="form-control" id="editPassword">
+          </div>
+          <div class="form-group">
+            <label for="editRole">الدور</label>
+            <select class="form-control" id="editRole">
+              <option value="user">مستخدم عادي</option>
+              <option value="viewer">مشاهد فقط</option>
+              <option value="admin">مدير</option>
+            </select>
+          </div>
+          <div class="form-actions mt-3">
+            <button type="button" class="btn btn-primary" onclick="saveUserEdit()">حفظ التغييرات</button>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('editUserModal').style.display='none'">إلغاء</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+    
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+    }
+    
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    
+    .form-actions {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    
+    .permissions-checkboxes {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 0.5rem;
+    }
+    
+    .permission-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .permission-checkbox {
+      width: 18px;
+      height: 18px;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .search-box {
+      position: relative;
+      width: 250px;
+    }
+    
+    .search-box i {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #6b7280;
+    }
+    
+    .search-box input {
+      padding-left: 35px;
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-align: center;
+    }
+    
+    .badge-admin {
+      background-color: #3b82f6;
+      color: white;
+    }
+    
+    .badge-user {
+      background-color: #10b981;
+      color: white;
+    }
+    
+    .badge-viewer {
+      background-color: #6b7280;
+      color: white;
+    }
+    
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .action-btn {
+      background: none;
+      border: none;
+      font-size: 1rem;
+      cursor: pointer;
+      color: #6b7280;
+      transition: color 0.3s ease;
+    }
+    
+    .edit-btn:hover {
+      color: #3b82f6;
+    }
+    
+    .delete-btn:hover {
+      color: #ef4444;
+    }
+    
+    /* تصميم النافذة المنبثقة */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .modal.active {
+      display: flex;
+    }
+    
+    .modal-content {
+      background-color: white;
+      border-radius: 0.5rem;
+      width: 100%;
+      max-width: 600px;
+      box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.25rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .modal-header h2 {
+      margin: 0;
+    }
+    
+    .close-modal {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #6b7280;
+    }
+    
+    .modal-body {
+      padding: 1.25rem;
+    }
+    
+    .modal-footer {
+      padding: 1.25rem;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+    }
+  </style>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // إضافة مستخدم جديد
+      const addUserForm = document.getElementById('addUserForm');
+      addUserForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // في الواقع، هنا ستقوم بإرسال البيانات إلى الخادم
+        // لكن للتبسيط، سنقوم بإضافة المستخدم مباشرة إلى الجدول
+        
+        const username = document.getElementById('username').value;
+        const fullname = document.getElementById('fullname').value;
+        const role = document.getElementById('role').value;
+        
+        // إنشاء صف جديد في الجدول
+        const newRow = document.createElement('tr');
+        newRow.innerHTML = `
+          <td>${fullname}</td>
+          <td>${username}</td>
+          <td><span class="badge badge-${role}">${getRoleName(role)}</span></td>
+          <td>${getCurrentDate()}</td>
+          <td>
+            <div class="actions">
+              <button class="action-btn edit-btn" data-id="new"><i class="fas fa-edit"></i></button>
+              <button class="action-btn delete-btn" data-id="new"><i class="fas fa-trash"></i></button>
+            </div>
+          </td>
+        `;
+        
+        document.getElementById('usersTable').appendChild(newRow);
+        
+        // إعادة تعيين النموذج
+        addUserForm.reset();
+        
+        // إضافة مستمعي الأحداث للأزرار الجديدة
+        setupActionButtons();
+        
+        // عرض رسالة نجاح (يمكن إضافتها)
+        alert('تم إضافة المستخدم بنجاح');
+      });
+      
+      // إعداد أزرار الإجراءات
+      function setupActionButtons() {
+        // أزرار التعديل
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const userId = this.getAttribute('data-id');
+            openEditModal(userId);
+          });
+        });
+        
+        // أزرار الحذف
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const userId = this.getAttribute('data-id');
+            deleteUser(userId);
+          });
+        });
+      }
+      
+      // حذف مستخدم
+      function deleteUser(userId) {
+        if (confirm('هل أنت متأكد من حذف هذا المستخدم؟')) {
+          // إظهار رسالة الانتظار
+          const messageBox = document.getElementById('addUserMessage');
+          showMessage(messageBox, 'جاري حذف المستخدم...', 'info');
+          
+          // إرسال طلب الحذف إلى الخادم
+          fetch(`/api/users/${userId}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              // إظهار رسالة النجاح
+              showMessage(messageBox, 'تم حذف المستخدم بنجاح', 'success');
+              
+              // إعادة تحميل قائمة المستخدمين
+              fetchUsers();
+            } else {
+              // إظهار رسالة الخطأ
+              showMessage(messageBox, data.message || 'حدث خطأ أثناء حذف المستخدم', 'error');
+            }
+          })
+          .catch(error => {
+            console.error('خطأ في حذف المستخدم:', error);
+            showMessage(messageBox, 'حدث خطأ أثناء الاتصال بالخادم', 'error');
+          });
+        }
+      }
+      
+      // فتح نافذة التعديل
+      function openEditModal(userId) {
+        // في الواقع، هنا ستقوم بجلب بيانات المستخدم من الخادم
+        // لكن للتبسيط، سنستخدم بيانات وهمية
+        
+        // تعيين قيمة معرف المستخدم
+        document.getElementById('edit_user_id').value = userId;
+        
+        // الحصول على بيانات المستخدم من الصف في الجدول
+        const row = document.querySelector(`.edit-btn[data-id="${userId}"]`).closest('tr');
+        const fullname = row.cells[0].textContent;
+        const username = row.cells[1].textContent;
+        const role = row.cells[2].querySelector('.badge').classList[1].replace('badge-', '');
+        
+        // تعيين القيم في النموذج
+        document.getElementById('edit_fullname').value = fullname;
+        document.getElementById('edit_username').value = username;
+        document.getElementById('edit_role').value = role;
+        
+        // إظهار النافذة المنبثقة
+        document.getElementById('editUserModal').classList.add('active');
+      }
+      
+      // إغلاق نافذة التعديل
+      document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', function() {
+          document.getElementById('editUserModal').classList.remove('active');
+        });
+      });
+      
+      // حفظ تغييرات المستخدم
+      document.getElementById('saveUserChanges').addEventListener('click', function() {
+        const userId = document.getElementById('edit_user_id').value;
+        const fullname = document.getElementById('edit_fullname').value;
+        const username = document.getElementById('edit_username').value;
+        const role = document.getElementById('edit_role').value;
+        
+        // في الواقع، هنا ستقوم بإرسال البيانات إلى الخادم
+        // لكن للتبسيط، سنقوم بتحديث الصف مباشرة
+        
+        const row = document.querySelector(`.edit-btn[data-id="${userId}"]`).closest('tr');
+        row.cells[0].textContent = fullname;
+        row.cells[1].textContent = username;
+        row.cells[2].innerHTML = `<span class="badge badge-${role}">${getRoleName(role)}</span>`;
+        
+        // إغلاق النافذة المنبثقة
+        document.getElementById('editUserModal').classList.remove('active');
+        
+        // عرض رسالة نجاح (يمكن إضافتها)
+        alert('تم تحديث بيانات المستخدم بنجاح');
+      });
+      
+      // البحث في جدول المستخدمين
+      document.getElementById('searchUsers').addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+        const rows = document.querySelectorAll('#usersTable tr');
+        
+        rows.forEach(row => {
+          const fullname = row.cells[0].textContent.toLowerCase();
+          const username = row.cells[1].textContent.toLowerCase();
+          
+          if (fullname.includes(searchTerm) || username.includes(searchTerm)) {
+            row.style.display = '';
+          } else {
+            row.style.display = 'none';
+          }
+        });
+      });
+      
+      // وظائف مساعدة
+      function getRoleName(role) {
+        switch (role) {
+          case 'admin': return 'مدير';
+          case 'user': return 'مستخدم عادي';
+          case 'viewer': return 'مشاهد فقط';
+          default: return role;
+        }
+      }
+      
+      function getCurrentDate() {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      }
+      
+      // معالجة نموذج إضافة المستخدم
+    document.getElementById('addUserForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value;
+      const fullName = document.getElementById('fullname').value;
+      const password = document.getElementById('password').value;
+      const role = document.getElementById('role').value;
+      const messageBox = document.getElementById('addUserMessage');
+      const adminUsername = sessionStorage.getItem('username') || 'admin';
+      
+      // التحقق من إدخال جميع البيانات المطلوبة
+      if (!username || !fullName || !password || !role) {
+        showMessage(messageBox, 'يرجى ملء جميع الحقول المطلوبة', 'error');
+        return;
+      }
+      
+      // إظهار رسالة الانتظار
+      showMessage(messageBox, 'جاري إضافة المستخدم...', 'info');
+      
+      try {
+        // إرسال البيانات إلى الخادم
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            username,
+            fullName,
+            password,
+            role,
+            adminUsername,
+            can_add: true,
+            can_delete: true,
+            can_update: true,
+            can_view: true
+          }),
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`فشل في إضافة المستخدم: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // إظهار رسالة النجاح
+          showMessage(messageBox, 'تم إضافة المستخدم بنجاح', 'success');
+          
+          // إعادة تعيين النموذج
+          document.getElementById('addUserForm').reset();
+          
+          // إعادة تحميل قائمة المستخدمين
+          fetchUsers();
+        } else {
+          // إظهار رسالة الخطأ
+          showMessage(messageBox, data.message || 'حدث خطأ أثناء إضافة المستخدم', 'error');
+        }
+      } catch (error) {
+        console.error('خطأ في إضافة المستخدم:', error);
+        showMessage(messageBox, 'حدث خطأ أثناء الاتصال بالخادم', 'error');
+      }
+    });
+    
+    // دالة لعرض الرسائل
+    function showMessage(element, message, type) {
+      if (!element) return;
+      
+      element.textContent = message;
+      element.style.display = 'block';
+      
+      // تعيين لون الرسالة حسب النوع
+      switch (type) {
+        case 'success':
+          element.style.backgroundColor = '#d4edda';
+          element.style.color = '#155724';
+          break;
+        case 'error':
+          element.style.backgroundColor = '#f8d7da';
+          element.style.color = '#721c24';
+          break;
+        case 'info':
+          element.style.backgroundColor = '#cce5ff';
+          element.style.color = '#004085';
+          break;
+        default:
+          element.style.backgroundColor = '#e2e3e5';
+          element.style.color = '#383d41';
+      }
+      
+      // إخفاء الرسالة بعد 5 ثوانٍ في حالة النجاح
+      if (type === 'success') {
+        setTimeout(() => {
+          element.style.display = 'none';
+        }, 5000);
+      }
+    }
+    
+    // إعداد أزرار الإجراءات عند تحميل الصفحة
+    setupActionButtons();
+    });
+  </script>
+  <!-- نافذة منبثقة لعرض نشاطات المستخدم -->
+  <div id="activityModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="activityModalTitle">نشاطات المستخدم</h2>
+        <span class="close">&times;</span>
+      </div>
+      <div class="modal-body">
+        <table class="table table-striped">
+          <thead>
+            <tr>
+              <th>نوع النشاط</th>
+              <th>التفاصيل</th>
+              <th>التاريخ والوقت</th>
+            </tr>
+          </thead>
+          <tbody id="userActivitiesList">
+            <!-- سيتم إضافة نشاطات المستخدم هنا -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* أنماط النافذة المنبثقة */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.4);
+    }
+    
+    .modal-content {
+      background-color: #fefefe;
+      margin: 10% auto;
+      padding: 0;
+      border: 1px solid #888;
+      width: 80%;
+      max-width: 800px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    .modal-header {
+      padding: 15px 20px;
+      background-color: #2563eb;
+      color: white;
+      border-radius: 8px 8px 0 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .modal-body {
+      padding: 20px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    
+    .close {
+      color: white;
+      float: left;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    
+    .close:hover,
+    .close:focus {
+      color: #f8f9fa;
+      text-decoration: none;
+    }
+  </style>
+</body>
+</html>
