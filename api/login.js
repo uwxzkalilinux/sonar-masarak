@@ -29,6 +29,31 @@ async function addActivity(activityType, username, details) {
   }
 }
 
+// تسجيل معلومات الجهاز
+async function logDeviceInfo(userId, req) {
+  try {
+    const ip = req.headers['x-forwarded-for'] || 'غير معروف';
+    const deviceName = req.headers['user-agent'] || 'غير معروف';
+    
+    const { error: deviceError } = await supabase
+      .from('user_devices')
+      .upsert([
+        {
+          user_id: userId,
+          device_name: deviceName,
+          ip_address: ip,
+          last_login: new Date().toISOString()
+        }
+      ]);
+    
+    if (deviceError) {
+      console.error('خطأ في تسجيل معلومات الجهاز:', deviceError);
+    }
+  } catch (error) {
+    console.error('خطأ في تسجيل معلومات الجهاز:', error);
+  }
+}
+
 module.exports = async (req, res) => {
   // إعداد CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -51,125 +76,80 @@ module.exports = async (req, res) => {
     console.log('محاولة تسجيل دخول جديدة');
     const { username, password, isAdmin } = req.body;
     
-    console.log('بيانات تسجيل الدخول المستلمة:', { username, passwordProvided: !!password, isAdmin });
-    
     if (!username || !password) {
       console.log('خطأ: بيانات تسجيل الدخول غير مكتملة');
-      return res.status(200).json({ success: false, message: 'يجب توفير اسم المستخدم وكلمة المرور' });
+      return res.status(400).json({ success: false, message: 'يجب توفير اسم المستخدم وكلمة المرور' });
     }
     
-    let account;
+    // البحث عن المستخدم
+    const { data: users, error: userError } = await supabase
+      .from('users')
+      .select('*');
     
-    try {
-      // البحث عن المستخدم في جدول users بغض النظر عن نوع المستخدم
-      console.log('جاري البحث عن المستخدم في قاعدة البيانات');
-      const { data, error: userError } = await supabase
-        .from('users')
-        .select('*');
-      
-      if (userError) {
-        console.error('خطأ في البحث عن المستخدم:', userError);
-        return res.status(200).json({ 
-          success: false, 
-          message: 'حدث خطأ أثناء البحث عن المستخدم',
-          details: userError.message || 'خطأ غير معروف'
-        });
-      }
-      
-      console.log(`تم استرجاع ${data ? data.length : 0} مستخدم من قاعدة البيانات`);
-      
-      // البحث عن المستخدم في البيانات المسترجعة
-      account = data.find(user => 
-        (user.user_name === username || 
-         user.name === username || 
-         user.email === username)
-      );
-      
-      console.log('نتيجة البحث عن المستخدم:', { userFound: !!account });
-      
-      if (!account) {
-        return res.status(200).json({ success: false, message: 'اسم المستخدم غير موجود. يرجى التواصل مع المدير.' });
-      }
-      
-      // التحقق من كلمة المرور
-      const isPasswordValid = account.password === password || account.password_hash === password;
-      console.log('نتيجة التحقق من كلمة المرور:', { isPasswordValid });
-      
-      if (!isPasswordValid) {
-        return res.status(200).json({ success: false, message: 'كلمة المرور غير صحيحة' });
-      }
-      
-      // التحقق من صلاحيات المدير إذا كان المستخدم يحاول تسجيل الدخول كمدير
-      if (isAdmin && account.role !== 'admin') {
-        return res.status(200).json({ success: false, message: 'ليس لديك صلاحيات كافية للوصول إلى لوحة التحكم' });
-      }
-      
-      console.log('تم تسجيل الدخول بنجاح:', username, isAdmin ? '(مدير)' : '(مستخدم عادي)');
-      
-      try {
-        // تسجيل معلومات الجهاز
-        const ip = req.headers['x-forwarded-for'] || 'غير معروف';
-        const deviceName = req.headers['user-agent'] || 'غير معروف';
-        
-        // إضافة أو تحديث معلومات الجهاز
-        const { error: deviceError } = await supabase
-          .from('user_devices')
-          .upsert([
-            {
-              user_id: account.id,
-              device_name: deviceName,
-              ip_address: ip,
-              last_login: new Date().toISOString()
-            }
-          ]);
-        
-        if (deviceError) {
-          console.error('خطأ في تسجيل معلومات الجهاز:', deviceError);
-          // نستمر بالرغم من الخطأ
-        }
-      } catch (deviceLogError) {
-        console.error('استثناء في تسجيل معلومات الجهاز:', deviceLogError);
-        // نستمر بالرغم من الخطأ
-      }
-      
-      try {
-        // تسجيل نشاط تسجيل الدخول
-        await addActivity('login', username, account.role === 'admin' ? 'تسجيل دخول مدير' : 'تسجيل دخول مستخدم');
-      } catch (activityLogError) {
-        console.error('استثناء في تسجيل النشاط:', activityLogError);
-        // نستمر بالرغم من الخطأ
-      }
-      
-      // إعداد معلومات المستخدم للإرجاع
-      return res.status(200).json({
-        success: true,
-        message: 'تم تسجيل الدخول بنجاح',
-        userId: account.id,
-        username: account.user_name || account.name || account.email,
-        isAdmin: account.role === 'admin',
-        user: {
-          id: account.id,
-          username: account.user_name || account.name || account.email,
-          email: account.email,
-          role: account.role,
-          created_at: account.created_at
-        }
-      });
-    } catch (error) {
-      console.error('استثناء غير متوقع في تسجيل الدخول:', error);
-      return res.status(200).json({ 
+    if (userError) {
+      console.error('خطأ في البحث عن المستخدم:', userError);
+      return res.status(500).json({ 
         success: false, 
-        message: 'حدث خطأ أثناء تسجيل الدخول',
-        details: error.message || 'خطأ غير معروف',
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        message: 'حدث خطأ أثناء البحث عن المستخدم'
       });
     }
+    
+    // البحث عن المستخدم في البيانات المسترجعة
+    const account = users.find(user => 
+      user.username === username || 
+      user.user_name === username || 
+      user.name === username || 
+      user.email === username
+    );
+    
+    if (!account) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'اسم المستخدم غير موجود. يرجى التواصل مع المدير.' 
+      });
+    }
+    
+    // التحقق من كلمة المرور
+    const isPasswordValid = account.password === password || account.password_hash === password;
+    
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'كلمة المرور غير صحيحة' 
+      });
+    }
+    
+    // التحقق من صلاحيات المدير
+    if (isAdmin && account.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'ليس لديك صلاحيات المدير' 
+      });
+    }
+    
+    // تسجيل نشاط تسجيل الدخول ومعلومات الجهاز
+    await Promise.all([
+      addActivity('login', username, { success: true, isAdmin }),
+      logDeviceInfo(account.id, req)
+    ]);
+    
+    // إعداد بيانات الاستجابة
+    return res.status(200).json({
+      success: true,
+      message: 'تم تسجيل الدخول بنجاح',
+      user: {
+        id: account.id,
+        username: account.username || account.user_name || account.name,
+        role: account.role || 'user',
+        email: account.email
+      }
+    });
+    
   } catch (error) {
-    console.error('خطأ عام في معالجة الطلب:', error);
+    console.error('خطأ في معالجة طلب تسجيل الدخول:', error);
     return res.status(500).json({ 
       success: false, 
-      message: 'حدث خطأ في الخادم',
-      details: error.message || 'خطأ غير معروف'
+      message: 'حدث خطأ أثناء معالجة الطلب'
     });
   }
 };
