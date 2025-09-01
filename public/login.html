@@ -264,7 +264,11 @@
         try {
           adminErrorMessage.style.display = 'none';
           
-          const response = await fetch('/api/login', {
+          // تحديد عنوان API
+          const API_BASE_URL = window.location.origin;
+          
+          // نموذج تسجيل الدخول العادي
+          const response = await fetch(`${API_BASE_URL}/api/login`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
